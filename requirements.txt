@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+pydantic
+requests
+pillow
+imagehash
+librosa
+numpy
+scipy
+soundfile
+python-dotenv
+redis
+pymongo
+boto3
+bson
