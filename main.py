@@ -29,7 +29,8 @@ async def check_video_fingerprint_duplicates(
     user_id: str,
     video_url: str,
     fingerprint_hex: str,
-    RESULT_STREAM_KEY: str
+    RESULT_STREAM_KEY: str,
+    auto_copyright_collection
 ):
     """
     Checks all LongVideo entries for duplicate fingerprints using compare_hamming_distance.
@@ -71,6 +72,20 @@ async def check_video_fingerprint_duplicates(
                 "matchedFingerPrint": db_fingerprint,
                 "matchedVideoUrl": doc.get("videoUrl"),
             })
+            result = await asyncio.to_thread(
+                lambda: auto_copyright_collection.insert_one({
+                    "flagged_video_id": ObjectId(video_id),
+                    "flagged_video_owner": ObjectId(user_id),
+                    "flagged_video_url": video_url,
+                    "flagged_video_fingerprint": fingerprint_hex,
+                    "matched_video_id": ObjectId(doc.get("_id")),
+                    "matched_video_url": doc.get("videoUrl"),
+                    "matched_video_fingerprint": db_fingerprint,
+                    "fingerprint_type": "video_fingerprint",
+                })
+            )
+
+            print(f"Inserted AutoCopyright record with _id: {result.inserted_id}")
     print("video duplicates checked successfully")
 
 async def check_audio_fingerprint_duplicates(
@@ -80,7 +95,8 @@ async def check_audio_fingerprint_duplicates(
     user_id: str,
     video_url: str,
     fingerprint_hex: str,
-    RESULT_STREAM_KEY: str
+    RESULT_STREAM_KEY: str,
+    auto_copyright_collection
 ):
     """
     Checks all LongVideo entries for duplicate fingerprints using compare_hamming_distance.
@@ -123,13 +139,27 @@ async def check_audio_fingerprint_duplicates(
                 "matchedAudioFingerprint": db_fingerprint,
                 "matchedVideoUrl": doc.get("videoUrl"),
             })
+            result = await asyncio.to_thread(
+                lambda: auto_copyright_collection.insert_one({
+                    "flagged_video_id": ObjectId(video_id),
+                    "flagged_video_owner": ObjectId(user_id),
+                    "flagged_video_url": video_url,
+                    "flagged_video_fingerprint": fingerprint_hex,
+                    "matched_video_id": ObjectId(doc.get("_id")),
+                    "matched_video_url": doc.get("videoUrl"),
+                    "matched_video_fingerprint": db_fingerprint,
+                    "fingerprint_type": "audio_fingerprint",
+                })
+            )
+
+            print(f"Inserted AutoCopyright record with _id: {result.inserted_id}")
     print("audio duplicates checked successfully")
 
 
 
 
 
-async def process_event(r: redis.Redis, event_data: dict, msg_id: str,long_video_collection,s3_client):
+async def process_event(r: redis.Redis, event_data: dict, msg_id: str,long_video_collection,s3_client,auto_copyright_collection,auto_nsfw_collection):
     video_id = str(event_data.get("videoId", ""))
     video_url = str(event_data.get("videoUrl", ""))
     user_id = str(event_data.get("userId", ""))
@@ -155,6 +185,15 @@ async def process_event(r: redis.Redis, event_data: dict, msg_id: str,long_video
                     "videoUrl": video_url,
                     "is_nsfw": json.dumps(is_nsfw)
                 })
+                result = await asyncio.to_thread(
+                    lambda: auto_nsfw_collection.insert_one({
+                        "flagged_video_id": ObjectId(video_id),
+                        "flagged_video_owner": ObjectId(user_id),
+                        "flagged_video_url": video_url,
+                    })
+                )
+
+                print(f"Inserted AutoNSFW record with _id: {result.inserted_id}")
             print(f"nsfw check completed {msg_id}")
 
         elif event_type == "video_fingerprint":
@@ -169,7 +208,7 @@ async def process_event(r: redis.Redis, event_data: dict, msg_id: str,long_video
             )
             if result.modified_count == 0:
                 print(f"⚠️ No document updated for videoId: {video_id}")
-            await check_video_fingerprint_duplicates(long_video_collection,r,video_id,user_id,video_url,fingerprint_hex,RESULT_STREAM_KEY)
+            await check_video_fingerprint_duplicates(long_video_collection,r,video_id,user_id,video_url,fingerprint_hex,RESULT_STREAM_KEY,auto_copyright_collection)
             print(f"duplicate check using video fingerprints completed {msg_id}")
 
         elif event_type == "audio_fingerprint":
@@ -184,7 +223,7 @@ async def process_event(r: redis.Redis, event_data: dict, msg_id: str,long_video
             )
             if result.modified_count == 0:
                 print(f"⚠️ No document updated for videoId: {video_id}")
-            await check_audio_fingerprint_duplicates(long_video_collection,r,video_id,user_id,video_url,fingerprint_hex,RESULT_STREAM_KEY)
+            await check_audio_fingerprint_duplicates(long_video_collection,r,video_id,user_id,video_url,fingerprint_hex,RESULT_STREAM_KEY,auto_copyright_collection)
             print(f"duplicate check using audio fingerprints completed {msg_id}")
 
         else:
@@ -200,7 +239,7 @@ async def process_event(r: redis.Redis, event_data: dict, msg_id: str,long_video
 async def worker():
     r = await init_redis()  # ✅ async init
     s3_client=init_s3_client() #init s3 client
-    client, long_video_collection = connect_database()
+    client, long_video_collection,auto_copyright_collection,auto_nsfw_collection = connect_database()
 
     # Ensure consumer group exists
     try:
@@ -225,7 +264,7 @@ async def worker():
                     for msg_id, data in events:
                         try:
                             print(f"task arrived in queue {msg_id}")
-                            asyncio.create_task(process_event(r, data, msg_id,long_video_collection,s3_client))
+                            asyncio.create_task(process_event(r, data, msg_id,long_video_collection,s3_client,auto_copyright_collection,auto_nsfw_collection))
                         except Exception as e:
                             print(f"❌ Failed to schedule event {msg_id}: {e}")
 
