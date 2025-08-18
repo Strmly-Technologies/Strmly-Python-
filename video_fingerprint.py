@@ -24,9 +24,9 @@ def generate_phash(file_paths):
     """Generate perceptual hashes for a list of images."""
     hashes = []
     for file_path in file_paths:
-        img = Image.open(file_path)
-        phash = imagehash.phash(img, hash_size=16)  # Similar to Node version
-        hashes.append(phash.__str__())
+        with Image.open(file_path) as img:
+            phash = imagehash.phash(img, hash_size=16)
+            hashes.append(phash.__str__())
     return hashes
 
 
@@ -75,10 +75,18 @@ def cleanup(*dirs):
             shutil.rmtree(d)
 
 
-def create_dirs(*dirs):
-    """Create directories if they don't exist."""
-    for d in dirs:
-        os.makedirs(d, exist_ok=True)
+def cleanup(*paths):
+    """Delete temporary directories or files."""
+    for p in paths:
+        if os.path.exists(p):
+            try:
+                if os.path.isdir(p):
+                    shutil.rmtree(p)
+                else:
+                    os.remove(p)
+            except Exception as e:
+                print(f"⚠️ Failed to delete {p}: {e}")
+
 
 
 def fingerprint_video(video_id, video_url,s3_client):

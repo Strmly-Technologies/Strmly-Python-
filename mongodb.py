@@ -19,8 +19,10 @@ def connect_database():
         client.admin.command("ping")
         db = client[DB_NAME]
         long_video_collection = db["longvideos"]
+        auto_copyright_collection=db["autocopyrights"]
+        auto_nsfw_collection=db["autonsfws"]
         print(f"✅ Connected to MongoDB: {DB_NAME}")
-        return client,long_video_collection
+        return client,long_video_collection,auto_copyright_collection,auto_nsfw_collection
     except errors.ServerSelectionTimeoutError as e:
         raise ConnectionError(f"❌ Could not connect to MongoDB: {e}")
     except Exception as e:
